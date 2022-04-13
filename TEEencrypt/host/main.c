@@ -35,8 +35,18 @@
 /* To the the UUID (found the the TA's h-file(s)) */
 #include <TEEencrypt_ta.h>
 
+#define RSA_KEY_SIZE 1024
+#define RSA_MAX_PLAIN_LEN_1024 86 // (1024/8) - 42 (padding)
+#define RSA_CIPHER_LEN_1024 (RSA_KEY_SIZE / 8)
+
+
+
 int main(int argc, char* argv[])
 {
+	//struct ta_attrs ta;
+	//char clear[RSA_MAX_PLAIN_LEN_1024];
+	//char ciph[RSA_CIPHER_LEN_1024];
+
 	TEEC_Result res;
 	TEEC_Context ctx;
 	TEEC_Session sess;
@@ -46,63 +56,43 @@ int main(int argc, char* argv[])
 	char plaintext[64] = {0,};
 	char ciphertext[64] = {0,};
 	int len=64;
+	int cipherkey=0;
+	FILE *fp;
+	char buffer[100] = {0,};
 
 
-
-	/* Initialize a context connecting us to the TEE */
 	res = TEEC_InitializeContext(NULL, &ctx);
 	if (res != TEEC_SUCCESS)
 		errx(1, "TEEC_InitializeContext failed with code 0x%x", res);
 
-	/*
-	 * Open a session to the "hello world" TA, the TA will print "hello
-	 * world!" in the log when the session is created.
-	 */
+	
 	res = TEEC_OpenSession(&ctx, &sess, &uuid,
 			       TEEC_LOGIN_PUBLIC, NULL, NULL, &err_origin);
 	if (res != TEEC_SUCCESS)
 		errx(1, "TEEC_Opensession failed with code 0x%x origin 0x%x",
 			res, err_origin);
 
-	/*
-	 * Execute a function in the TA by invoking it, in this case
-	 * we're incrementing a number.
-	 *
-	 * The value of command ID part and how the parameters are
-	 * interpreted is part of the interface provided by the TA.
-	 */
-
-	/* Clear the TEEC_Operation struct */
+	
 	memset(&op, 0, sizeof(op));
 
-	/*
-	 * Prepare the argument. Pass a value in the first parameter,
-	 * the remaining three parameters are unused.
-	 */
+	
 	//TEEC_VALUE_INOUT
-	op.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT, TEEC_NONE,
+	op.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT, TEEC_VALUE_INOUT,
 					 TEEC_NONE, TEEC_NONE);
 	op.params[0].tmpref.buffer = plaintext;
 	op.params[0].tmpref.size = len;
-	FILE *fp;
-	//int c;
-	char buffer[100] = {0,};
+	op.params[1].value.a = 0;
+	
+	printf("%d",op.params[1].value.a);
 
 	if(strcmp(argv[1], "-e")==0){
 	
 	fp = fopen(argv[2], "r");
 	fread(buffer,1,sizeof(buffer),fp);
 
-	/*while((c = fgetc(fp)) != EOF){
-   		putchar(c);
-  	}*/
-
 	fclose(fp);
 
 	printf("========================Encryption========================\n");
-	//printf("Please Input Plaintext : ");
-	//scanf("%[^\n]s",plaintext);
-	//memcpy(op.params[0].tmpref.buffer, plaintext, len);
 	memcpy(op.params[0].tmpref.buffer, buffer, len);
 
 	res = TEEC_InvokeCommand(&sess, TA_TEEencrypt_CMD_ENCRYPT, &op,
@@ -110,32 +100,37 @@ int main(int argc, char* argv[])
 	if (res != TEEC_SUCCESS)
 		errx(1, "TEEC_InvokeCommand failed with code 0x%x origin 0x%x",
 			res, err_origin);
-
+	
 	memcpy(ciphertext, op.params[0].tmpref.buffer, len);
+	
 
 	fp = fopen("encrypt.txt", "w");
 	fputs(ciphertext,fp);
 	fclose(fp);
 	printf("Ciphertext : %s\n", ciphertext);
+	
+	
+	fp = fopen("key.txt", "w");
+	fprintf(fp,"%d",op.params[1].value.a);
+	fclose(fp);
+	printf("Cipherkey : %d\n", op.params[1].value.a);
 	}
 
 	if(strcmp(argv[1], "-d")==0){
 	printf("========================Decryption========================\n");	
 	fp = fopen(argv[2],"r");
 	fread(buffer,1,100,fp);
-	//while((c = fgetc(fp)) != EOF){
-   	//	putchar(c);
-  	//}
+
+	fclose(fp);
+	
+	fp = fopen(argv[3],"r");
+	fscanf(fp,"%d",&cipherkey);
 
 	fclose(fp);
 
 	
-	//printf("Please Input Ciphertext : ");
-	//getchar();
-	//scanf("%[^\n]s",ciphertext);
-
-	//memcpy(op.params[0].tmpref.buffer, ciphertext, len);
 	memcpy(op.params[0].tmpref.buffer, buffer, len);
+	op.params[1].value.a = cipherkey;
 	res = TEEC_InvokeCommand(&sess, TA_TEEencrypt_CMD_DECRYPT, &op,
 				 &err_origin);
 	
@@ -143,6 +138,7 @@ int main(int argc, char* argv[])
 		errx(1, "TEEC_InvokeCommand failed with code 0x%x origin 0x%x",
 			res, err_origin);
 	memcpy(plaintext, op.params[0].tmpref.buffer, len);
+	
 	printf("Plaintext : %s\n", plaintext);
 
 	fp = fopen("decrypt.txt", "w");
@@ -151,27 +147,18 @@ int main(int argc, char* argv[])
 	printf("plaintext : %s\n", plaintext);
 	
 	}
-	/*
-	 * TA_HELLO_WORLD_CMD_INC_VALUE is the actual function in the TA to be
-	 * called.
-	 */
-	/*printf("Invoking TA to increment %d\n", op.params[0].value.a);
-	res = TEEC_InvokeCommand(&sess, TA_TEEencrypt_CMD_INC_VALUE, &op,
-				 &err_origin);
-	res = TEEC_InvokeCommand(&sess, TA_TEEencrypt_CMD_DEC_VALUE, &op,
-				 &err_origin);
-	if (res != TEEC_SUCCESS)
-		errx(1, "TEEC_InvokeCommand failed with code 0x%x origin 0x%x",
-			res, err_origin);
-	printf("TA incremented value to %d\n", op.params[0].value.a);*/
 
-	/*
-	 * We're done with the TA, close the session and
-	 * destroy the context.
-	 *
-	 * The TA will print "Goodbye!" in the log when the
-	 * session is closed.
-	 */
+	//rsa here
+	/*printf("\nType something to be encrypted and decrypted in the TA:\n");
+	
+	fp = fopen(argv[2], "r");
+	fread(buffer,1,sizeof(buffer),fp);
+
+	fclose(fp);
+	
+	rsa_gen_keys(&ta);
+	rsa_encrypt(&ta, clear, RSA_MAX_PLAIN_LEN_1024, ciph, RSA_CIPHER_LEN_1024);*/
+	
 
 	TEEC_CloseSession(&sess);
 
